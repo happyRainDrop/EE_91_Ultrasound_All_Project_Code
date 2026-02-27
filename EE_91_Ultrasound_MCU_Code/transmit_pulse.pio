@@ -1,0 +1,62 @@
+;
+; Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+;
+; SPDX-License-Identifier: BSD-3-Clause
+;
+.pio_version 0
+;
+; Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+;
+; SPDX-License-Identifier: BSD-3-Clause
+;
+
+.program transmit_pulse
+
+waitTrig:
+    pull block         ; <- wait for CPU trigger
+
+doPulse:
+    set pins, 0b001       ; ON 20=trig, OFF 21=n, 22=p (P pulse)
+
+    ; delay n cycles
+    set x, 25
+delay1:
+    jmp x-- delay1
+
+    set pins, 0b110       ; OFF 20=trig, ON 21=n, 22=p (N pulse) 
+
+    ; another n-cycle delay
+    set x, 25
+delay2:
+    jmp x-- delay2
+
+    set pins, 0b100       ; GPIO22 stays ON
+
+done:
+    jmp waitTrig
+
+
+% c-sdk {
+// this is a raw helper function for use by the user which sets up the GPIO output, 
+// and configures the SM to output on a particular pin
+
+void transmit_pulse_program_init(PIO pio, uint sm, uint offset, uint pin) {
+
+    pio_sm_config c = transmit_pulse_program_get_default_config(offset);
+
+    // configure 3 consecutive pins as PIO
+    pio_gpio_init(pio, pin + 0);
+    pio_gpio_init(pio, pin + 1);
+    pio_gpio_init(pio, pin + 2);
+
+    // set them all to outputs
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, true);
+    sm_config_set_set_pins(&c, pin, 3);
+
+    // optional but recommended: set PIO clock slower
+    sm_config_set_clkdiv(&c, 4.0f);
+
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+%}

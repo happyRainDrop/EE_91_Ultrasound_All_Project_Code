@@ -1,0 +1,185 @@
+// Module: ram_handler
+// FSM with three states
+// In state 0 (Idle mode), ADC is disabled, no serial data,
+//                        and no writing to RAM
+// In state 1 (Reading mode), writes ADC samples to RAM
+// In state 2 (Writing mode), prints ADC samples to Serial
+// When we are done reading then transmitting all our samples,
+// go to idle mode and set the "DONE" flag
+// Switches between states after reading a certain number
+// of samples
+
+module ram_handler #(
+    NUM_SAMPLES = 8000,            // # of ADC readings per pulse
+    NUM_ADC_CHANNELS = 10
+)(
+    input clk,  // clock
+    input rst,  // reset
+    
+    // ADC NEEDS
+    input adc_in[NUM_ADC_CHANNELS],         // physical ADC digital input pins 
+    output adc_clk_val,       // output 50 MHz clock value
+    
+    // TOP-LEVEL TX NEEDS
+    output new_tx,            // new TX flag
+    output tx_data[8],        // TX data (1 byte)
+    input tx_busy,            // TX is busy flag
+    
+    // TOP-LEVEL INTERACTION
+    input ramHandlerEn[2],     // used to go from IDLE to other states
+    output ramDoneFlag        // active high, 
+                              // 1 means done reading and transmitting ADC data
+                              // can reuse RAM for another iteration
+) { 
+    
+    // Declare constants 
+    const EN_MODE_DISABLE = 0    // stay in IDLE state, do nothing
+    const EN_MODE_ADC = 1
+    const EN_MODE_TRANSMIT = 2
+    const EN_MODE_CLEAR = 3
+    
+    // Declare DFFs and entities
+    
+    enum RamHandler_States {IDLE, CLEAR_MEM, READ_ADC, TRANSMIT_MEM} // our state machine
+    
+    enum PrintSerial_States {PRINT_MSB, PRINT_LSB}
+
+    .clk(clk) {
+        .rst(rst) {
+            // State machine and ADC
+            dff ramhandler_state[$width(RamHandler_States)]
+            adc my_adc (#NUM_ADC_CHANNELS(NUM_ADC_CHANNELS))
+        }
+        
+        // Memory-related entities
+        dff mem_location_idx[$clog2(NUM_SAMPLES)]
+        simple_ram my_ram (#WIDTH(16), #ENTRIES(NUM_SAMPLES))
+        
+        dff printserial_state[$width(PrintSerial_States)]
+        
+    }
+    
+    always {
+        // SERIAL DEFAULTS
+        my_ram.address = mem_location_idx.q  // use index as the address
+        my_ram.write_data = 0              // don't care
+        my_ram.write_enable = 0               // read by default
+        new_tx = 0                         // default to no new data
+        tx_data = 0                         // don't care
+        ramDoneFlag = 0                    // not done transmitting everything
+
+        // ADC defaults
+        my_adc.adc_en = 1                    // enabled by default
+        my_adc.adc_din_vals = adc_in
+        adc_clk_val = my_adc.adc_clk_out
+        
+        // ===== DEFAULT HOLD =====
+        ramhandler_state.d = ramhandler_state.q
+        printserial_state.d = printserial_state.q
+        mem_location_idx.d = mem_location_idx.q
+
+        // ===== RESET BEHAVIOR =====
+        if (rst) {
+            ramhandler_state.d = RamHandler_States.IDLE
+            mem_location_idx.d = 0
+            printserial_state.d = PrintSerial_States.PRINT_MSB
+        } else {
+        
+            case (ramhandler_state.q) { // our FSM
+                // IDLE: Reset everything and do nothing
+                RamHandler_States.IDLE:
+                    mem_location_idx.d = 0     // RAM location reset
+                    my_adc.adc_en = 0          // Disable ADC
+                    ramDoneFlag = 1
+                    // Serial transmission is disabled by default
+                    // RAM writing is disabled by default
+                    
+                    // Are we good to leave the IDLE mode?
+                    // All other modes go back to IDLE
+                    if (ramHandlerEn == EN_MODE_ADC) {
+                            ramhandler_state.d = RamHandler_States.READ_ADC
+                    } else if (ramHandlerEn == EN_MODE_CLEAR) {
+                            ramhandler_state.d = RamHandler_States.CLEAR_MEM
+                    } else if (ramHandlerEn == EN_MODE_TRANSMIT) {
+                            ramhandler_state.d = RamHandler_States.TRANSMIT_MEM
+                    } else if (ramHandlerEn == EN_MODE_DISABLE){
+                            ramhandler_state.d = RamHandler_States.IDLE
+                    }
+             
+                // Clear memory: Fill BRAM with 0s
+                RamHandler_States.CLEAR_MEM:
+                    my_adc.adc_en = 1                   // ADC makes our write timing clock
+                    my_ram.write_enable = my_adc.adc_write_en
+                    my_ram.write_data = 0
+                    
+                    // Update location at the end of each ADC clock
+                    if (my_adc.adc_write_en) {
+                        // Currently writing to a location, next location
+                        // will update next rising edge of clock
+                        if (mem_location_idx.q < (NUM_SAMPLES - 1)) {
+                            mem_location_idx.d = mem_location_idx.q + 1
+                        } else {
+                            mem_location_idx.d = 0            // done reading samples
+                            // ramDoneFlag = 1
+                            ramhandler_state.d = RamHandler_States.IDLE
+                        }
+                    }
+                    
+                // ADC_READ: Fill BRAM with ADC readings
+                RamHandler_States.READ_ADC:
+                    my_adc.adc_en = 1                   // make sure ADC enabled default
+                    my_ram.write_enable = my_adc.adc_write_en
+                    
+                    // Update location at the end of each ADC clock
+                    if (my_adc.adc_write_en) {
+                        // Set our write_data to be a sum of the current ADC
+                        // value + memory at this location
+                        // (running sum of ADC values at this timepoint)
+                        my_ram.write_data = (my_ram.read_data + c{b000000, my_adc.adc_write_data}) 
+                        
+                        // Currently writing to a location, next location
+                        // will update next rising edge of clock
+                        if (mem_location_idx.q < (NUM_SAMPLES - 1)) {
+                            mem_location_idx.d = mem_location_idx.q + 1
+                        } else {
+                        // Done adding samples
+                            mem_location_idx.d = 0
+                            // ramDoneFlag = 1
+                            ramhandler_state.d = RamHandler_States.IDLE
+                        }
+                    } 
+    
+               // TRASMIT_MEM: Write BRAM readings to Serial
+               RamHandler_States.TRANSMIT_MEM:
+                    my_adc.adc_en = 0
+                    new_tx = 0
+                
+                    if (!tx_busy) {
+                        
+                        case (printserial_state.q) {
+                            PrintSerial_States.PRINT_MSB:
+                                tx_data = my_ram.read_data[15:8] 
+                                new_tx = 1        // new data to print
+                                printserial_state.d = PrintSerial_States.PRINT_LSB
+                                
+                                // Advance RAM index
+                                // because read ram reads address from 1 clock ago
+                                if (mem_location_idx.q < (NUM_SAMPLES-1)) {
+                                    mem_location_idx.d = mem_location_idx.q + 1
+                                } else {
+                                    mem_location_idx.d = 0
+                                    // ramDoneFlag = 1
+                                    ramhandler_state.d = RamHandler_States.IDLE
+                                }
+                                
+                            PrintSerial_States.PRINT_LSB:
+                                tx_data = my_ram.read_data[7:0] 
+                                new_tx = 1        // new data to print
+                                printserial_state.d = PrintSerial_States.PRINT_MSB
+                        }
+                    }    // end of "if tx not busy"
+                               
+            }    // end of FSM case statement
+        }    // end of "else if not rst"
+    } // end of always loop   
+}

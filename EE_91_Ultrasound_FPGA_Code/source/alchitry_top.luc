@@ -1,0 +1,165 @@
+// This module reads in 10 bits from an ADC
+// 5 times, and then prints each 10 bit number
+// on a new line in the Serial Monitor.
+// It takes another 5 readings every a new
+// character is sent to/typed over Serial.
+// High ADC bits are printed first (adc_din[9] to
+// adc_din[0])
+// 
+// UPDATES from V1: 
+//    a. V2 saves data into 2 bytes, and
+//       prints each 10 bit number as 2 bytes.
+//    b. V2 will only SAMPLE AND ADD TO MEMORY when sent "1" over Serial
+//       V2 will only TRANSMIT MEMORY when sent "2" over Serial
+//       V2 will only CLEAR MEMORY (reset to all 0s) when sent "3" over Serial
+
+module alchitry_top (
+    input clk,              // 100MHz clock
+    input rst_n,            // reset button (active low)
+    input trig_adc_read_pin,    // HIGH to leave IDLE state
+    input clear_mem_pin,
+    input adc_din[10],      // ADC channels in
+    output adc_out_pin[2],  // ADC clock out
+    output led[8],          // 8 user controllable LEDs
+    input usb_rx,            // USB->Serial input
+    output usb_tx           // USB->Serial output
+) {
+
+    sig rst                 // reset signal
+    
+    enum TopLevelStates {IDLE, GET_PULSE} // our state machine
+    enum RamHandler_States {IDLE, CLEAR_MEM, READ_ADC, TRANSMIT_MEM}
+    
+    // Ram handler en states -- serial bytes in to trigger them
+    // const SERIAL_TRIG_ADC_BYTE = 49    // ascii for 1  
+    // const SERIAL_SEND_MEM_BYTE = 50  // ascii for 2
+    // const SERIAL_CLEAR_MEM_BYTE = 51 // ascii for 3
+    //  These much match ram_handler.luc! What ram_handler.en is actual set to
+    const EN_MODE_DISABLE = 0
+    const EN_MODE_ADC = 1
+    const EN_MODE_TRANSMIT = 2
+    const EN_MODE_CLEAR = 3   
+
+    .clk(clk) {
+        // The reset conditioner is used to synchronize the reset signal to the FPGA
+        // clock. This ensures the entire FPGA comes out of reset at the same time.
+        reset_conditioner reset_cond
+                
+        .rst(rst) {
+            // Overall flow control
+            dff toplevel_state[$width(TopLevelStates)]
+            dff trigger_pending     // trigger signal, 1 means triggered out of IDLE
+            // dff adc_trig_pending
+            dff started_get_pulse
+            
+            // see consts above for explainations of ram handler states we wanted to trigger
+            // dff next_ram_handler_en_state[2]
+            dff curr_ram_handler_en_state[2]
+            
+            // Serial
+            #BAUD(1_000_000), #CLK_FREQ(100_000_000) {
+                uart_rx rx
+                uart_tx tx
+            }
+            
+            // Read and trasmit each pulse
+            ram_handler readAndTransmitOnePulse
+        }
+    }
+
+    always {
+        reset_cond.in = ~rst_n  // input raw inverted reset signal
+        rst = reset_cond.out    // conditioned reset
+        led = 8h00              // turn LEDs off
+        // usb_tx = usb_rx         // echo the serial data
+        usb_tx = tx.tx          // connect tx output
+        rx.rx = usb_rx          // connect rx input
+        
+        // My state variables
+        readAndTransmitOnePulse.ramHandlerEn = 0
+        // next_ram_handler_en_state.d = EN_MODE_DISABLE
+        toplevel_state.d = toplevel_state.q    // default hold state
+        trigger_pending.d = trigger_pending.q
+        started_get_pulse.d = started_get_pulse.q
+        
+        // My ADC trigger
+        // adc_trig_pending.d = start_sys_pin   // synchronous input
+        
+
+        // ===== RESET BEHAVIOR AND FSM =====
+        if (rst) {
+            toplevel_state.d = TopLevelStates.IDLE
+        } else {
+            case (toplevel_state.q) { // our FSM
+                // IDLE: Reset everything
+                TopLevelStates.IDLE:
+                    readAndTransmitOnePulse.ramHandlerEn = 0
+                    started_get_pulse.d = 0
+                    
+                    if (trigger_pending.q == 1) {   // Leave idle state!
+                        trigger_pending.d = 0
+                        curr_ram_handler_en_state.d = EN_MODE_TRANSMIT
+                        toplevel_state.d = TopLevelStates.GET_PULSE
+                    }
+                    else if (trig_adc_read_pin) {
+                        curr_ram_handler_en_state.d = EN_MODE_ADC
+                        toplevel_state.d = TopLevelStates.GET_PULSE
+                    } else if (clear_mem_pin) {
+                        curr_ram_handler_en_state.d = EN_MODE_CLEAR
+                        toplevel_state.d = TopLevelStates.GET_PULSE
+                    }
+                      
+                // GET_PULSE:
+                TopLevelStates.GET_PULSE:
+                    // led = 8hFF  
+                    readAndTransmitOnePulse.ramHandlerEn = curr_ram_handler_en_state.q
+                    
+                    if (started_get_pulse.q == 0) {
+                        started_get_pulse.d = 1
+                    } else if (readAndTransmitOnePulse.ramDoneFlag) {
+                        readAndTransmitOnePulse.ramHandlerEn = 0
+                        started_get_pulse.d = 0
+                        toplevel_state.d = TopLevelStates.IDLE
+                    }
+                   
+            }
+        }
+        
+        // ADC connection
+        readAndTransmitOnePulse.adc_in = adc_din
+        adc_out_pin[0] = readAndTransmitOnePulse.adc_clk_val
+        adc_out_pin[1] = 0
+        
+        // Serial transmission
+        tx.new_data = readAndTransmitOnePulse.new_tx  // new serial data available flag
+        tx.data = readAndTransmitOnePulse.tx_data     // actual thing to print
+        readAndTransmitOnePulse.tx_busy = tx.busy     // are we busy?
+        // tx.block = 0           // no flow control, do not block
+        
+        // Know when to trigger system out of idle again
+        // Sets flags that are only checked in idle state
+        //*
+        
+        if (rx.new_data) {
+            trigger_pending.d = 1;
+            /*
+            if (rx.data == SERIAL_TRIG_ADC_BYTE) {
+                next_ram_handler_en_state.d = EN_MODE_ADC
+            } else if (rx.data == SERIAL_CLEAR_MEM_BYTE) {
+                next_ram_handler_en_state.d = EN_MODE_CLEAR
+            } else if (rx.data == SERIAL_SEND_MEM_BYTE) {
+                next_ram_handler_en_state.d = EN_MODE_TRANSMIT
+            } //*/
+        }//*/ 
+        
+        // LED indicators
+        led[0] = trigger_pending.q;
+        // led[1] = (next_ram_handler_en_state.q == EN_MODE_ADC)
+        // led[2] = (next_ram_handler_en_state.q == EN_MODE_CLEAR)
+        // led[3] = (next_ram_handler_en_state.q == EN_MODE_TRANSMIT)
+        // led[4] = (next_ram_handler_en_state.q == EN_MODE_DISABLE)
+        led[7] = (toplevel_state.q == TopLevelStates.GET_PULSE);
+
+    }
+}
+

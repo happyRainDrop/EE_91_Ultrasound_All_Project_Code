@@ -1,0 +1,1 @@
+synth_ice40 -json "C:\Users\tealw\Documents\alchitry\EE91_ReadADC_Serial_V2\build\alchitry.json" -top alchitry_top
