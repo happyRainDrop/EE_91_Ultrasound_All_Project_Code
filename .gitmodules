@@ -1,0 +1,3 @@
+[submodule "EE_91_Ultrasound_MCU_Code/Stepper_Motor_Control_PICO"]
+	path = EE_91_Ultrasound_MCU_Code/Stepper_Motor_Control_PICO
+	url = https://github.com/gavinlyonsrepo/Stepper_Motor_Control_PICO
