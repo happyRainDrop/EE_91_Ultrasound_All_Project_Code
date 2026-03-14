@@ -4,7 +4,6 @@
 #include "hardware/adc.h"
 #include "hardware/uart.h"
 #include "hardware/clocks.h"
-
 #include "transmit_pulse.pio.h"
 
 #ifndef TRIG_ADC_PIN
@@ -19,6 +18,66 @@ int TRIG_ADC_CHAR = 'p';  // send 'p' over serial to trigger
 int TRIG_CLEAR_MEM = 'm';
 int READ_TELEMETRY_CHAR = 'x';
 
+/*
+//  X motor: BLUE = 6, PINK = 7, YELLOW = 8, ORANGE = 9
+//  Z motor: BLUE = 10, PINK = 11, YELLOW = 12, ORANGE = 13
+// Pink-orange are a coil, yellow-blue are a coil
+// Pink is inverse of yellow. Orange is inverse of blue
+// The vector is: (A, B, not A, not B) so (Pink, Orange, Yellow, Blue)
+std::vector<uint> zMotorPins = {7, 9, 8, 6}; // 28bjy-48
+std::vector<uint> xMotorPins = {11, 13, 12, 10};
+
+StepMotorControl xMotor(StepMotorControl::BYJ_48, xMotorPins);
+StepMotorControl zMotor(StepMotorControl::BYJ_48, zMotorPins);
+//*/
+
+const uint zMotorPins_NEMA[4] = {6,7,8,9};
+const uint xMotorPins_NEMA[4] = {10,11,13,12};
+
+const bool stepTable[4][4] = {
+    {1,0,1,0},
+    {0,1,1,0},
+    {0,1,0,1},
+    {1,0,0,1}
+};
+
+void stepMotorX(int step) {
+    for(int i=0;i<4;i++)
+        gpio_put(xMotorPins_NEMA[i], stepTable[step][i]);
+}
+
+void releaseMotorX() {
+    for(int i=0;i<4;i++)
+        gpio_put(xMotorPins_NEMA[i], 0);
+}
+
+void stepMotorZ(int step) {
+    for(int i=0;i<4;i++)
+        gpio_put(zMotorPins_NEMA[i], stepTable[step][i]);
+}
+
+void releaseMotorZ() {
+    for(int i=0;i<4;i++)
+        gpio_put(zMotorPins_NEMA[i], 0);
+}
+
+void runMotor(int steps, int delay_ms, bool clockwise, bool xMotor) {
+    int stepIndex = 0;
+
+    for(int s=0; s<steps; s++)
+    {
+        if (xMotor) stepMotorX(stepIndex);
+        else stepMotorZ(stepIndex);
+
+        if (clockwise) stepIndex++;
+        else stepIndex--;
+
+        if(stepIndex >= 4) stepIndex = 0;
+        if (stepIndex < 0) stepIndex = 3;
+
+        busy_wait_ms(delay_ms);
+    }
+}
 
 void send_pulse_PIO(PIO pio, uint sm, uint pin, uint offset) {
     /*
@@ -69,6 +128,17 @@ int main() {
     gpio_put(TRIG_ADC_PIN+1, 0);
     gpio_put(TRIG_ADC_PIN+2, 1);
 
+    // Init motor GPIOs
+    for (int i = 0; i < 4; i++) {
+        gpio_init(xMotorPins_NEMA[i]);
+        gpio_set_dir(xMotorPins_NEMA[i], GPIO_OUT);
+        gpio_put(xMotorPins_NEMA[i], 0);
+
+        gpio_init(zMotorPins_NEMA[i]);
+        gpio_set_dir(zMotorPins_NEMA[i], GPIO_OUT);
+        gpio_put(zMotorPins_NEMA[i], 0);
+    }
+
     // Init ADCs
     adc_gpio_init(26); // Prepare GP26 for ADC use
     adc_select_input(0); // Select ADC channel 0 (corresponding to GP26)
@@ -76,6 +146,10 @@ int main() {
     adc_select_input(1); // Select ADC channel 0 (corresponding to GP26)
     adc_gpio_init(28); // Prepare GP26 for ADC use
     adc_select_input(2); // Select ADC channel 0 (corresponding to GP26)
+
+    // Init motors
+    // xMotor.motorInit();
+    // zMotor.motorInit();
 
     // Init PIO, load program
     PIO pio = pio0;
@@ -101,8 +175,22 @@ int main() {
                 sleep_us(50);
                 gpio_put(CLEAR_MEM_PIN, 0);
                 printf("CLEAR\n");
-            } else if (c == 'x') {
-                printf("Mock ADC readings...\n");
+            } else if (c == 'a') { 
+                // x motor to the left, looking head on
+                runMotor(4, 10, true, true);
+            } else if (c == 'b') {
+                // x motor to the right, looking head on
+                runMotor(4, 10, false, true);
+            } else if (c == 'c') {
+                // z motor to down, looking head on
+                runMotor(4, 10, true, false);
+            } else if (c == 'd') {
+                // z motor to up, looking head on
+                runMotor(4, 10, false, false);
+            } else if (c == 'e') {
+                releaseMotorX();
+            } else if (c == 'f') {
+                releaseMotorZ();
             }
         }
 

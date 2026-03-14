@@ -38,7 +38,7 @@ CLEAR_MEM_BYTE_FPGA_SERIAL = b'3'           # triggers FPGA
 # Globals
 ser_fpga = None
 ser_pi_pico = None
-verbose = False
+verbose = True
     # values when transducer images nothing
 blank_arr = numpy.zeros(NUM_READINGS_PER_PULSE).tolist()
 
@@ -176,7 +176,7 @@ def read_ADC():
                 if line == "DONE" or line == "Recieved: p":
                     if (verbose): print("Pico says it is DONE triggering the ADC and transmit circuit.")
                     duration = time.time() - start_time
-                    if (verbose): print(f"📝 Finished reading ADC in {duration:.1f} seconds.")
+                    if (verbose): print(f"📝 Finished reading ADC in {duration:.3f} seconds.")
                     return True   # SUCCESS
 
                 # Any other text from Pico — optional debugging:
@@ -260,7 +260,7 @@ def read_pulse_from_serial():
         this_pulse.append(float(value))
 
     duration = time.time() - start_time
-    if verbose: print(f"📝 Finished reading serial in {duration:.1f} seconds.")
+    if verbose: print(f"📝 Finished reading serial in {duration:.3f} seconds.")
     return np.array(this_pulse)
 
 
@@ -369,7 +369,7 @@ def plot_adc_csv_ECHOES(filename, sampling_rate, subtract_blank=False):
 
     # Require minimum window size
     if half_cycle_samples < 8:
-        print("Sampling rate too low to detect 5 MHz.")
+        # print("Sampling rate too low to detect 5 MHz.")
         half_cycle_samples = 8
 
     red_mask = np.zeros(len(samples), dtype=bool)
@@ -444,7 +444,7 @@ def set_blank_arr(blank_csv_path = "blank.csv"):
 
 if __name__ == "__main__":
     try:
-        plot_adc_csv_ECHOES('blank.csv', SAMPLING_RATE)    
+        # plot_adc_csv_ECHOES('blank.csv', SAMPLING_RATE)    
         connect_fpga_serial()
         connect_pi_pico_serial()
         
@@ -476,7 +476,7 @@ if __name__ == "__main__":
 
                 writer.writerow(["============="]) # Needed for plot_adc_csv end marker
                 duration = time.time() - start_time
-                print(f"📝 Finished writing {k} lines to {file_path} in {duration:.1f} seconds.")
+                print(f"📝 Finished writing {k} lines to {file_path} in {duration:.3f} seconds.")
 
         # Plotting time
         set_blank_arr()
