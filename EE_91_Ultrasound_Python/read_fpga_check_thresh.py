@@ -38,7 +38,7 @@ CLEAR_MEM_BYTE_FPGA_SERIAL = b'3'           # triggers FPGA
 # Globals
 ser_fpga = None
 ser_pi_pico = None
-verbose = True
+verbose = False
     # values when transducer images nothing
 blank_arr = numpy.zeros(NUM_READINGS_PER_PULSE).tolist()
 
@@ -211,6 +211,8 @@ def read_pulse_from_serial():
     TIMEOUT_SECONDS = 0.2                 # wait this long before retrying
     start_time = time.time()
     data = None
+
+    time.sleep(0.05)
     while True:
 
         # Resend trigger if we have to when getting no data
@@ -453,7 +455,7 @@ if __name__ == "__main__":
         # ser_fpga.write(TRIGGER_ADC_BYTE_FPGA_SERIAL)   
 
         #'''
-        for i in range(1):
+        for i in range(100):
             file_path = "output" + str(i) + ".csv"
             start_time = time.time()
             
@@ -471,18 +473,30 @@ if __name__ == "__main__":
 
                 # Write each string as a new row
                 k = 0
+                seesWall = False
                 for value in my_pulse:
                     writer.writerow([str(int(value))])
                     k+=1
+                    if (k>=4096):
+                        if (int(value)<=512*64):
+                            seesWall = True
+                
+                expect_Wall = True
+                if (expect_Wall and not seesWall):
+                    print("Error -- no wall seen")
+                if (not expect_Wall and seesWall):
+                    print("Error -- wall seen")
+                    
 
                 writer.writerow(["============="]) # Needed for plot_adc_csv end marker
                 duration = time.time() - start_time
                 print(f"📝 Finished writing {k} lines to {file_path} in {duration:.3f} seconds.")
 
         # Plotting time
-        set_blank_arr()
+        # set_blank_arr()
         for i in range(1):  
             file_path = "output" + str(i) + ".csv"  
+            print(f"Plotting {file_path}")
             plot_adc_csv(file_path, SAMPLING_RATE)    
             plot_adc_csv_ECHOES(file_path, SAMPLING_RATE)
 

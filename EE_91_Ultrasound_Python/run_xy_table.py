@@ -46,8 +46,9 @@ ser_pi_pico = None
 verbose = False
 
 # motor constants
-NUM_IMG_ROWS = 30
-NUM_IMG_COLS = 30
+NUM_IMG_ROWS = 60   # these go up/down
+NUM_IMG_COLS = 60    # these go left/right
+TEST_MODE = False  # don't spin motors in test mode
 
 # Connectivity functions
 def find_fpga_port():
@@ -238,7 +239,6 @@ def read_pulse_from_serial():
 
             # If bytes arrived, read them
             if ser_fpga.in_waiting > 0:
-                transmission_started = True
                 break
 
         # Read bytes that arrive
@@ -248,7 +248,7 @@ def read_pulse_from_serial():
             total_bin_buf.extend(data)
             data = None
             if (len(total_bin_buf) >= BYTES_PER_PACKET):
-                # print(total_bin_buf[0])
+                print(total_bin_buf[0])
                 return (total_bin_buf[0] == 0)
 
 # Motor moving functions
@@ -258,6 +258,9 @@ def moveMotor(isXMotor, leftOrUp):
     '''
     global ser_pi_pico
     global verbose
+
+    if TEST_MODE: 
+        return
 
     TRIGGER_TIMEOUT = 0.10   # seconds
 
@@ -378,7 +381,11 @@ if __name__ == "__main__":
         connect_pi_pico_serial()
         binary_matrix = np.zeros((NUM_IMG_ROWS, NUM_IMG_COLS))
         releaseMotors()
-        print("Please reset the X-Y stage and type DONE when done.")
+        input("Please reset the X-Y stage and press ENTER when done.")
+
+        print("10 seconds until starting scan, please get in position.")
+        time.sleep(10)  
+        print("Starting scan.")
 
         # Start the motor a little bit up from the floor
         for i in range(10):
@@ -387,12 +394,12 @@ if __name__ == "__main__":
         for i in range(NUM_IMG_COLS):
 
             # Move z to top smoothly
-            for i in range(NUM_IMG_ROWS):
+            for k in range(NUM_IMG_ROWS):
                 moveMotor(isXMotor=False, leftOrUp=True)
 
             # Move x over by one
             moveMotor(isXMotor=True, leftOrUp=True)
-            print(i)
+            print(f"  row {i}")
 
             for j in range(NUM_IMG_ROWS):
                 moveMotor(isXMotor=False, leftOrUp=False)
@@ -400,15 +407,15 @@ if __name__ == "__main__":
                 startTime = time.time()
                 read_ADC()
                 seesObject = read_pulse_from_serial()
-                print(f" that took {(time.time()-startTime):.3f} seconds.")
-                if seesObject: print("AHHHHHHH")
+                #print(f" that took {(time.time()-startTime):.3f} seconds.")
+                #if seesObject: print("AHHHHHHH")
 
                 row = NUM_IMG_ROWS - 1 - j
                 col = NUM_IMG_COLS - 1 - i
                 binary_matrix[row][col] = seesObject
 
         releaseMotors()
-        plt.imshow(binary_matrix, cmap='gray', vmin=0, vmax=1)
+        plt.imshow(np.array(binary_matrix), cmap='gray', vmin=0, vmax=1, origin='lower')
         plt.axis('off')
         plt.show()
 
@@ -422,4 +429,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         ser_fpga.close()
         ser_pi_pico.close()
+        releaseMotors()
         sys.exit(0)
