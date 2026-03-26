@@ -427,7 +427,7 @@ if __name__ == "__main__":
         ser_pi_pico.close()
 
     except KeyboardInterrupt:
+        releaseMotors()
         ser_fpga.close()
         ser_pi_pico.close()
-        releaseMotors()
         sys.exit(0)

@@ -1,0 +1,27 @@
+set_io clk P7
+set_io rst_n P8
+set_io trig_adc_read_pin A4
+set_io clear_mem_pin A2
+set_io adc_out_pin[0] A6
+set_io adc_out_pin[1] A7
+set_io adc_din[0] L1
+set_io adc_din[1] M1
+set_io adc_din[2] J3
+set_io adc_din[3] J1
+set_io adc_din[4] G3
+set_io adc_din[5] G1
+set_io adc_din[6] D1
+set_io adc_din[7] E1
+set_io adc_din[8] B1
+set_io adc_din[9] C1
+set_io led[0] J11
+set_io led[1] K11
+set_io led[2] K12
+set_io led[3] K14
+set_io led[4] L12
+set_io led[5] L14
+set_io led[6] M12
+set_io led[7] N14
+set_io usb_rx P14
+set_io usb_tx M9
+

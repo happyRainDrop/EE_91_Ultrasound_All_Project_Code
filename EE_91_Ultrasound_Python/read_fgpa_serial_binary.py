@@ -405,14 +405,15 @@ def plot_adc_csv_ECHOES(filename, sampling_rate, subtract_blank=False):
     plt.figure(figsize=(10, 4))
 
     # Blue points (default)
-    plt.plot(time[~red_mask], samples[~red_mask], 'bo', markersize=5)
+    time_to_dist_multiplier = 0.15/2   # d * 2 = v * t
+    plt.plot(time[~red_mask]*time_to_dist_multiplier, samples[~red_mask], 'bo', markersize=5)
 
     # Red points (5 MHz-like)
-    plt.plot(time[red_mask], samples[red_mask], 'ro', markersize=5)
+    plt.plot(time[red_mask]*time_to_dist_multiplier, samples[red_mask], 'ro', markersize=5)
 
-    plt.xlabel("Time [us]")
+    plt.xlabel("Distance [cm]")
     plt.ylabel("ADC Value")
-    plt.title("ADC Samples vs Time (5 MHz segments in red)")
+    plt.title("Echoes vs Distance (5 MHz segments in red)")
     plt.grid(True)
     plt.show()
 
@@ -444,10 +445,10 @@ def set_blank_arr(blank_csv_path = "blank.csv"):
 
 if __name__ == "__main__":
     try:
-        # plot_adc_csv_ECHOES('blank.csv', SAMPLING_RATE)    
+        plot_adc_csv_ECHOES('output0.csv', SAMPLING_RATE)    
         connect_fpga_serial()
         connect_pi_pico_serial()
-        # time.sleep(10)
+        #time.sleep(10)
         
         # ser_fpga.flush()
         # ser_fpga.write(TRIGGER_ADC_BYTE_FPGA_SERIAL)   
