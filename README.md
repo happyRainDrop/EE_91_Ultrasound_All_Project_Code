@@ -3,7 +3,8 @@
 ### Caltech EE 91: Senior Project
 
 # Introduction
-
+This is all the code for my EE 91 project, a single-element sweeping ultrasound.
+When submerged in water parallel to a wall, it is capable of producing a binary image (wall vs something blocking wall) or of producing a depth line (reporting back raw echoes).
 
 # Instructions for Use
 ## Prerequisites
